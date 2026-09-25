@@ -9,32 +9,70 @@ checkout, no gem/yarn build, no asset rebuild.
 Mastodon exposes the character limit from a single source of truth:
 `app/validators/status_length_validator.rb`'s `MAX_CHARS` constant. That
 constant is what enforces the limit server-side, and it's also what
-`/api/v2/instance` reports as `configuration.statuses.max_characters` — the
-value the frontend compose UI fetches at runtime and uses for the counter
-and submit-button gating. So patching that one file is sufficient; the
-prebuilt static JS/CSS assets don't need to change at all.
+`/api/v2/instance` (and `/api/v1/instance`) report as
+`configuration.statuses.max_characters` — the value the frontend compose UI
+fetches at runtime and uses for the counter and submit-button gating. So
+patching that one file is sufficient; the prebuilt static JS/CSS assets
+don't need to change at all.
 
 This flake:
 
-1. Pulls the official `ghcr.io/mastodon/mastodon:v4.6.6` image (pinned by
+1. Pulls the official `ghcr.io/mastodon/mastodon:<version>` image (pinned by
    per-arch OCI manifest digest + Nix's fixed-output hash, for both
    `amd64` and `arm64`).
 2. Fetches the real `status_length_validator.rb` from the Mastodon source
    at the same pinned tag (pinned by URL + sha256).
 3. Applies `patches/status-length-validator-max-chars.patch` — a 1-line
-   diff, not a full-file replacement — so a future version bump fails
-   loudly (`patch` reject) instead of silently reintroducing stale
-   validation logic if upstream ever changes that file's surroundings.
+   diff, not a full-file replacement, applied at `--fuzz=0` — so a future
+   version bump fails loudly (`patch` reject) instead of silently
+   reintroducing stale validation logic if upstream ever changes that
+   file's surroundings. The build then asserts the end state
+   (`MAX_CHARS = 5000`) rather than trusting the steps composed.
 4. Layers the patched file on top of the pulled image via
    `dockerTools.buildLayeredImage`, carrying forward the base image's
-   runtime `Entrypoint`/`User`/`WorkingDir`/`ExposedPorts` explicitly
-   (`fromImage` only auto-merges `Env`; everything else in `config` would
-   otherwise silently replace, not extend, the base image's config).
+   entire runtime config (`config = pins.baseConfig`, captured
+   mechanically — see below) since `fromImage` only auto-merges `Env` and
+   would otherwise silently drop everything else.
+
+All version-specific pins (Mastodon tag, per-arch image digests, per-arch
+Nix fixed-output hashes, the source file's hash, the base image's runtime
+config) live in `versions.json`, not inline in `flake.nix` — `nix run
+.#update` (see below) regenerates it with `jq -n`, a real structured-data
+tool, rather than pattern-matching or splicing Nix source text.
+
+### Two dockerTools sharp edges this works around
+
+**`contents` would place a symlink, not a file.** `buildLayeredImage`'s
+`contents` routes through `symlinkJoin`, so the patched file would land in
+the image as a symlink into `/nix/store`, dragging the store path in as an
+extra layer. This flake uses `extraCommands` instead, which runs in the
+layer root and writes a real file.
+
+**Directory metadata in an upper layer overrides the base image's.** Every
+directory the new layer contains is emitted as a tar entry, and those
+entries restamp ownership and mode over whatever the base image had.
+`/opt`, `/opt/mastodon/app` and `/opt/mastodon/app/validators` are all
+`root:root 0755` upstream and come out that way already, but
+`/opt/mastodon` is the mastodon user's home — `991:991 0700` — and would
+otherwise be silently reset to `root:root 0755`, taking write access to it
+away from the app and making it world-readable. `fakeRootCommands` restores
+it. Note that neither this nor the symlink issue is visible to `docker
+inspect` or to reading the patched file back out of the image.
 
 ## Changing the character limit
 
 Edit `maxChars` in `flake.nix` (currently `5000`) and rebuild. It's the
 only value that needs to change.
+
+Two caveats worth knowing, neither of which this flake can do anything
+about:
+
+- Remote servers won't reject your longer posts — `StatusLengthValidator`
+  early-returns on non-local statuses, so they federate and display in
+  full.
+- Third-party clients that hardcode 500 rather than reading
+  `max_characters` from the instance API will still cap you at 500 in their
+  own UI.
 
 ## Dev shell
 
@@ -60,47 +98,87 @@ docker tag mastodon-custom-charlimit:v4.6.6-maxchars5000 <your-registry>/mastodo
 docker push <your-registry>/mastodon:v4.6.6-maxchars5000
 ```
 
-For a multi-arch manifest, build both, push both under arch-suffixed tags,
-then `docker manifest create`/`push` (or `skopeo`) to combine them.
-
-### amd64 hash not yet resolved
-
-This flake was authored on an Apple Silicon Mac with no x86_64-linux
-builder. The `arm64` build was fully built and verified natively; the
-`x86_64-linux.sha256` in `flake.nix` is still a fake placeholder (Nix's
-build-setup seccomp filter doesn't work under qemu-user emulation, so it
-can't be resolved via Docker's `--platform linux/amd64` emulation either).
-
-Resolve it on any real x86_64-linux machine, or in CI (e.g. a GitHub
-Actions `ubuntu-latest` runner):
+Mastodon's image is over a gigabyte, and `buildLayeredImage` materialises
+the whole tarball in the nix store before you load it. To skip that, stream
+it straight into Docker instead:
 
 ```
-nix build .#packages.x86_64-linux.default
+nix run .#stream | docker load
 ```
 
-It will fail with `hash mismatch ... got: sha256-...` — paste that value
-into `archInfo.x86_64-linux.sha256` in `flake.nix`.
+`nix flake check` builds the patched validator and runs `ruby -c` on it —
+the one property the build-time `grep` assertion can't cover. (It needs to
+build for a linux system, so it wants a linux builder if you're on darwin.)
 
 ## Bumping the Mastodon version
 
-1. Update `mastodonVersion` in `flake.nix`.
-2. Get the new per-arch manifest digests:
-   `skopeo inspect --raw docker://ghcr.io/mastodon/mastodon:<new-tag>`
-   and update `archInfo.*.imageDigest`.
-3. Reset both `archInfo.*.sha256` fields and `originalValidator.sha256` to
-   fake placeholders, then rebuild on each arch to TOFU-resolve the real
-   hashes (see above).
-4. Check `status_length_validator.rb` at the new tag still matches the
-   patch's context lines — if upstream changed the file, `patch` will
-   reject at build time and the diff needs a manual update.
-5. Check upstream's `Dockerfile` final stage hasn't changed
-   `USER`/`WorkingDir`/`ExposedPorts`/`Entrypoint` — those are hand-copied
-   into `flake.nix`'s `config` since `dockerTools` doesn't inherit them
-   from `fromImage` automatically.
+```
+nix run .#update                # latest stable release
+nix run .#update -- v4.7.0      # a specific tag
+```
+
+Run from the repo root. The logic lives in `scripts/update-versions.sh`;
+the `apps.update` entry in `flake.nix` just puts its runtime dependencies
+(`nix`, `curl`, `jq`, `skopeo`) on `PATH` and points it at the flake's own
+pinned nixpkgs. It regenerates `versions.json` in place:
+
+1. Resolves the target tag (queries GitHub's "latest release" API if none
+   given).
+2. `skopeo inspect`s the image manifest to get the amd64 and arm64 OCI
+   digests.
+3. Resolves both per-arch Nix fixed-output hashes by attempting
+   `dockerTools.pullImage` with a fake hash and parsing the real one out of
+   the mismatch error (standard Nix TOFU). This runs entirely on whatever
+   machine invokes it — `pullImage` turns out to be just `skopeo copy`
+   under the hood, not something that needs a matching/linux builder, so
+   this works fine from a Mac.
+4. Captures the base image's runtime config with `skopeo inspect --config`,
+   so the `Entrypoint`/`User`/`WorkingDir`/`ExposedPorts`/`Shell` that
+   `dockerTools` refuses to inherit from `fromImage` are never hand-copied
+   out of upstream's `Dockerfile`, and a future `Cmd`/`Labels`/`Healthcheck`
+   comes along for free. The two arches' configs have historically been
+   identical, so one shared `baseConfig` is stored; if they ever diverge the
+   script fails rather than applying one arch's config to both images.
+5. Resolves `status_length_validator.rb`'s hash at the new tag via
+   `nix store prefetch-file` and writes the whole new `versions.json` with
+   `jq -n`.
+
+`versions.json` is only ever replaced by an atomic rename of a fully
+written temp file, so a failed run (bad tag, network error, GitHub rate
+limit) leaves the working tree untouched.
+
+It does *not* check that `patches/status-length-validator-max-chars.patch`
+still applies to the new tag — `nix build` does that for real the next
+time it's run, and fails loudly (a patch reject) if upstream changed the
+file enough that it no longer does, rather than silently building on stale
+validation logic. If that happens, the patch needs a manual update.
+
+Once you're happy with the `versions.json` diff (and the patch still
+applies), run `nix build .#packages.<system>.default` yourself.
 
 ## Verified
 
-The `aarch64-linux` image was built and checked end-to-end: `docker
-inspect` shows the same `Entrypoint`/`User`/`WorkingDir`/`ExposedPorts`/`Env`
-as upstream, `status_length_validator.rb` inside the image has
-`MAX_CHARS = 5000`, and `ruby -c` on that file reports valid syntax.
+Enforced on every build, so it can't regress:
+
+- The patch applies with no fuzz, and the result contains
+  `MAX_CHARS = 5000` (asserted in the builder).
+- `nix flake check` runs `ruby -c` on the patched file.
+
+Checked by hand against `v4.6.6` (against the pulled image itself, not just
+upstream's source tree):
+
+- `validatorSha256` hashes byte-for-byte identical to
+  `/opt/mastodon/app/validators/status_length_validator.rb` inside the
+  published image — the raw.githubusercontent pin fetches exactly the file
+  being replaced.
+- `MAX_CHARS` really is the only source of truth: it is a bare literal in
+  the validator, and both `app/serializers/rest/instance_serializer.rb` and
+  `rest/v1/instance_serializer.rb` derive `max_characters` from it. Nothing
+  else in the image defines it, and there is no env-var override.
+- The base image's runtime config is byte-identical across `amd64` and
+  `arm64`, which is what lets `versions.json` store a single `baseConfig`.
+- `/opt/mastodon` is `991:991 0700` in the base image (every layer that
+  touches it), which is what `fakeRootCommands` restores.
+- Both per-arch fixed-output hashes reproduce against the already-pinned
+  `v4.6.6`, and the `jq -n` generation step reproduces `versions.json`
+  byte-for-byte offline from the same known-good values.

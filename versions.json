@@ -1,0 +1,57 @@
+{
+  "mastodonVersion": "v4.6.6",
+  "validatorSha256": "sha256-/TZWZkGnW1a/M6njOmwo714I9O4qYtobBoySTUpu8L8=",
+  "baseConfig": {
+    "Entrypoint": [
+      "/usr/bin/tini",
+      "--"
+    ],
+    "Env": [
+      "PATH=/usr/local/bundle/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/ruby/bin:/opt/mastodon/bin",
+      "LANG=C.UTF-8",
+      "RUBY_VERSION=4.0.5",
+      "RUBY_DOWNLOAD_URL=https://cache.ruby-lang.org/pub/ruby/4.0/ruby-4.0.5.tar.xz",
+      "RUBY_DOWNLOAD_SHA256=5dc5521ea54c726e6cc10b1b5a0f4004b27b482e61c04c99aed79315e30895e5",
+      "GEM_HOME=/usr/local/bundle",
+      "BUNDLE_SILENCE_ROOT_WARNING=1",
+      "BUNDLE_APP_CONFIG=/usr/local/bundle",
+      "MASTODON_VERSION_PRERELEASE=",
+      "MASTODON_VERSION_METADATA=",
+      "SOURCE_COMMIT=d74bbd9a3c64740433e016dfc936e83d710858f6",
+      "RAILS_SERVE_STATIC_FILES=true",
+      "RUBY_YJIT_ENABLE=1",
+      "TZ=Etc/UTC",
+      "BIND=0.0.0.0",
+      "NODE_ENV=production",
+      "RAILS_ENV=production",
+      "DEBIAN_FRONTEND=noninteractive",
+      "MALLOC_CONF=narenas:2,background_thread:true,thp:never,dirty_decay_ms:1000,muzzy_decay_ms:0",
+      "MASTODON_SIDEKIQ_READY_FILENAME=sidekiq_process_has_started_and_will_begin_processing_jobs"
+    ],
+    "ExposedPorts": {
+      "3000/tcp": {}
+    },
+    "Shell": [
+      "/bin/bash",
+      "-o",
+      "pipefail",
+      "-o",
+      "errexit",
+      "-c"
+    ],
+    "User": "mastodon",
+    "WorkingDir": "/opt/mastodon"
+  },
+  "archs": {
+    "x86_64-linux": {
+      "arch": "amd64",
+      "imageDigest": "sha256:14ab012144b7962ee223f0958bf136530c3917bde2f1c7ccb50267b8408728b6",
+      "sha256": "sha256-r5yYQJ2m1hfvo7o1hmywiOn8qFzZLmnp9/qE7IaBL78="
+    },
+    "aarch64-linux": {
+      "arch": "arm64",
+      "imageDigest": "sha256:15706533ec560d33b41b70679d92e4bf56e455e2c33a2b9170a92dd8cb7ab673",
+      "sha256": "sha256-ce3UBf9W0NmW7y+mKp9kfx9LSMmYqj4F7HG9z3kTUXA="
+    }
+  }
+}
