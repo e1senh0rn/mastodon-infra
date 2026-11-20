@@ -1,0 +1,61 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . }}
+# No inbound traffic to any of the release's pods (sidekiq, jobs) ...
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mastodon.fullname" . }}-deny-ingress
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+{{- /* ... except web and streaming, on their ports ... */}}
+{{- range $component, $port := dict "web" 3000 "streaming" 4000 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mastodon.fullname" $root }}-{{ $component }}
+  labels:
+    {{- include "mastodon.labels" $root | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" $root | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: {{ $port }}
+      {{- with $root.Values.networkPolicy.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- /* ... and the metrics ports to the collector. */}}
+{{- if .Values.metrics.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mastodon.fullname" . }}-metrics
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: 9394
+        - port: 4000
+      {{- with .Values.metrics.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

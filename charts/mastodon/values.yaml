@@ -1,0 +1,132 @@
+image:
+  repository: ghcr.io/e1senh0rn/mastodon
+  # Defaults to v<appVersion>.
+  tag: ""
+  # sha256:...; when set, the image is pulled by digest and tag is ignored.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+mastodon:
+  # Required. The domain in user handles (@alice@<localDomain>). Can't be
+  # changed once the instance has federated.
+  localDomain: ""
+  # Where the web UI and API are served, if different from localDomain.
+  webDomain: ""
+
+  # Required. Name of an existing Secret in the release namespace. Every key
+  # becomes an environment variable, so it holds all secret settings:
+  #   SECRET_KEY_BASE, VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY,
+  #   ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY,
+  #   ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT,
+  #   ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY,
+  #   DB_PASS, and as needed REDIS_PASSWORD, AWS_ACCESS_KEY_ID,
+  #   AWS_SECRET_ACCESS_KEY, SMTP_PASSWORD.
+  # See the chart's README for generating them.
+  existingSecret: ""
+
+  # Extra non-secret environment variables for every Mastodon container,
+  # e.g. SMTP_SERVER, SMTP_FROM_ADDRESS, SINGLE_USER_MODE, ALTERNATE_DOMAINS.
+  extraEnv: {}
+
+postgresql:
+  host: ""
+  port: 5432
+  database: mastodon
+  username: mastodon
+  # disable, prefer, require, verify-ca or verify-full.
+  sslMode: prefer
+
+redis:
+  host: ""
+  port: 6379
+
+# Media storage. When disabled, media goes to a PersistentVolumeClaim.
+s3:
+  enabled: false
+  bucket: ""
+  # Full URL, e.g. https://s3.example.com. Empty for AWS.
+  endpoint: ""
+  region: us-east-1
+  # Host media URLs point to, e.g. a CDN or the bucket's public website host.
+  aliasHost: ""
+
+persistence:
+  # Used only when s3.enabled is false. Web and sidekiq both mount it, so
+  # with more than one node use ReadWriteMany or keep them on one node.
+  existingClaim: ""
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+
+web:
+  replicas: 1
+  # Extra environment variables for this component only,
+  # e.g. WEB_CONCURRENCY, MAX_THREADS.
+  env: {}
+  resources: {}
+
+streaming:
+  replicas: 1
+  env: {}
+  resources: {}
+
+sidekiq:
+  # Must stay 1: the process runs every queue, including the scheduler queue,
+  # which only one process may run. Scale with concurrency instead.
+  replicas: 1
+  concurrency: 25
+  env: {}
+  resources: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # TLS certificate Secret for the web host; leave empty if TLS terminates
+  # elsewhere (e.g. cert-manager annotations add it, or a load balancer).
+  tlsSecretName: ""
+
+# Gateway API HTTPRoute.
+httpRoute:
+  enabled: false
+  annotations: {}
+  # e.g. [{name: public, namespace: gateway, sectionName: https}]
+  parentRefs: []
+
+# Ingress to the pods is limited to web and streaming's ports. Only
+# effective if the cluster's network plugin enforces NetworkPolicy.
+networkPolicy:
+  enabled: true
+  # Who may reach web and streaming. Empty means anyone; set it to the
+  # ingress or gateway controller, e.g.
+  # [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: traefik}}}]
+  from: []
+
+# Prometheus metrics at /metrics: web and sidekiq on port 9394 (named
+# "metrics"; web's come from a collector sidecar), streaming on its own port
+# 4000 (always on).
+metrics:
+  enabled: false
+  # For web's collector sidecar.
+  resources: {}
+  # Who may scrape (NetworkPolicy). Empty means anyone; set it to the
+  # collector, e.g. [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: monitoring}}}]
+  from: []
+  # A Prometheus Operator PodMonitor (needs its CRDs). Also read by Grafana
+  # Alloy, the VictoriaMetrics operator and the OpenTelemetry target allocator.
+  podMonitor:
+    enabled: false
+    # Labels your Prometheus selects monitors by, e.g. {release: kube-prometheus-stack}.
+    labels: {}
+    interval: 30s
+
+# Size cap of the emptyDir at /tmp, Mastodon's scratch space (media
+# processing). The root filesystem is read-only.
+tmpSizeLimit: 2Gi
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

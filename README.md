@@ -123,6 +123,9 @@ Differences from upstream's image to account for:
   upstream.
 - `jemalloc` is preloaded (`LD_PRELOAD`) with upstream's `MALLOC_CONF`.
 
+For Kubernetes, [`charts/mastodon`](charts/mastodon/README.md) deploys the
+image with all of the above taken care of.
+
 ## Building locally
 
 Needs a Linux builder. On a Mac, Determinate Nix's built-in Linux builder

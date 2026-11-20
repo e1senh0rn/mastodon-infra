@@ -202,6 +202,8 @@
               pkgs.gnupatch
               pkgs.layerx
               pkgs.dive
+              pkgs.kubernetes-helm
+              pkgs.kubeconform
             ];
           };
 

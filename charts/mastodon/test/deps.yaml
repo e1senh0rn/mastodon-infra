@@ -1,0 +1,164 @@
+# Throwaway PostgreSQL, Redis and Garage (S3) for test/run.sh. Data lives in
+# emptyDirs and is lost when the pods go. Not for production.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          env:
+            - {name: POSTGRES_USER, value: mastodon}
+            - {name: POSTGRES_DB, value: mastodon}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: test-deps, key: postgres-password}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, mastodon]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql}
+      volumes:
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  selector:
+    matchLabels: {app: redis}
+  template:
+    metadata:
+      labels: {app: redis}
+    spec:
+      containers:
+        - name: redis
+          image: redis:8.8-alpine
+          args: [--requirepass, $(REDIS_PASSWORD)]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: test-deps, key: redis-password}
+          ports: [{containerPort: 6379}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+spec:
+  selector:
+    matchLabels: {app: garage}
+  template:
+    metadata:
+      labels: {app: garage}
+    spec:
+      containers:
+        - name: garage
+          image: dxflrs/garage:v2.5.0
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef: {name: test-deps, key: garage-rpc-secret}
+          ports:
+            - {name: s3, containerPort: 3900}
+            - {name: web, containerPort: 3902}
+          volumeMounts:
+            - {name: config, mountPath: /etc/garage.toml, subPath: garage.toml}
+            - {name: data, mountPath: /var/lib/garage}
+      volumes:
+        - name: config
+          configMap: {name: garage}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "[::]:3900"
+
+    # Bucket "media" is served at media.k8s.orb.local.
+    [s3_web]
+    bind_addr = "[::]:3902"
+    root_domain = ".k8s.orb.local"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+spec:
+  selector: {app: garage}
+  ports:
+    - {name: s3, port: 3900}
+    - {name: web, port: 3902}
+---
+# Public media host, as a CDN would be in production.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: garage-web
+spec:
+  tls:
+    - hosts: [media.k8s.orb.local]
+      secretName: test-tls
+  rules:
+    - host: media.k8s.orb.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: garage
+                port: {name: web}
+---
+# For the httpRoute variant of the test.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: test
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 8443
+      hostname: "*.k8s.orb.local"
+      tls:
+        certificateRefs:
+          - name: test-tls

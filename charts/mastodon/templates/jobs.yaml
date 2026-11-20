@@ -1,0 +1,37 @@
+{{- /*
+Before the new pods: db:prepare loads the schema into an empty database, or
+runs the migrations that are safe while old pods still run. After: the
+post-deployment migrations, which old code may not tolerate.
+*/}}
+{{- $jobs := list
+  (dict "name" "db-prepare" "hook" "pre-install,pre-upgrade" "task" "db:prepare" "skipPost" true)
+  (dict "name" "db-migrate" "hook" "post-install,post-upgrade" "task" "db:migrate" "skipPost" false)
+}}
+{{- range $jobs }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "mastodon.fullname" $ }}-{{ .name }}
+  labels:
+    {{- include "mastodon.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ .name }}
+  annotations:
+    helm.sh/hook: {{ .hook }}
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "mastodon.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ .name }}
+    spec:
+      {{- include "mastodon.pod" (dict "root" $) | nindent 6 }}
+      restartPolicy: Never
+      containers:
+        - name: {{ .name }}
+          {{- include "mastodon.container" (dict "root" $ "env" (ternary (dict "SKIP_POST_DEPLOYMENT_MIGRATIONS" "true") (dict) .skipPost)) | nindent 10 }}
+          args: [bundle, exec, rails, {{ .task }}]
+{{- end }}

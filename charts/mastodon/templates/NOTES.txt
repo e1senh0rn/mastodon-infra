@@ -1,0 +1,12 @@
+Mastodon {{ .Chart.AppVersion }} is deployed for {{ .Values.mastodon.localDomain }}{{ with .Values.mastodon.webDomain }} (web: {{ . }}){{ end }}.
+
+Create an owner account:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "mastodon.fullname" . }}-web -- \
+    bin/tootctl accounts create <username> --email <email> --confirmed --role Owner
+
+{{- if not (or .Values.ingress.enabled .Values.httpRoute.enabled) }}
+
+Neither ingress nor httpRoute is enabled. Route https://{{ include "mastodon.webHost" . }} to
+service {{ include "mastodon.fullname" . }}-web:3000, and /api/v1/streaming to {{ include "mastodon.fullname" . }}-streaming:4000.
+{{- end }}

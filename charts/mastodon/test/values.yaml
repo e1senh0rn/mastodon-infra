@@ -1,0 +1,23 @@
+mastodon:
+  localDomain: mastodon.k8s.orb.local
+  existingSecret: mastodon
+postgresql:
+  host: postgres
+  sslMode: disable
+redis:
+  host: redis
+s3:
+  enabled: true
+  bucket: media
+  endpoint: http://garage:3900
+  region: garage
+  aliasHost: media.k8s.orb.local
+metrics:
+  enabled: true
+ingress:
+  enabled: true
+  tlsSecretName: test-tls
+httpRoute:
+  parentRefs:
+    - name: test
+      sectionName: https

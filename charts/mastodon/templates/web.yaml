@@ -1,0 +1,97 @@
+{{- include "mastodon.validate" . }}
+{{- $uploads := include "mastodon.uploads" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mastodon.fullname" . }}-web
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        {{- include "mastodon.labels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "mastodon.pod" (dict "root" . "uploads" $uploads) | nindent 6 }}
+      containers:
+        - name: web
+          {{- include "mastodon.container" (dict "root" . "env" (merge (include "mastodon.metricsEnv" (dict "root" .) | fromYaml) .Values.web.env) "uploads" $uploads) | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 3000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          {{- with .Values.web.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- if .Values.metrics.enabled }}
+        # Collects the metrics of Puma and its workers (see mastodon.metricsEnv).
+        # Needs no Mastodon configuration or secrets, so gets none.
+        - name: metrics
+          image: {{ include "mastodon.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [bundle, exec, prometheus_exporter, --bind, 0.0.0.0, --port, "9394"]
+          env:
+            - name: TMPDIR
+              value: /tmp/tmp
+            - name: HOME
+              value: /tmp/home
+          securityContext:
+            {{- include "mastodon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          ports:
+            - name: metrics
+              containerPort: 9394
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+          {{- with .Values.metrics.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mastodon.fullname" . }}-web
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    {{- include "mastodon.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
