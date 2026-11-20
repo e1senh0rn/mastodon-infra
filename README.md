@@ -229,8 +229,13 @@ when its contents do. The arm64 runner is free for public repos; for a
 private one, point the `ARM64_RUNNER` repo variable at a larger or
 self-hosted arm64 runner.
 
-Actions are pinned to commit SHAs; Dependabot (`.github/dependabot.yml`)
-proposes updates weekly.
+Actions are referenced by version tag and locked to commits in
+`.github/workflows/actions.lock`; a run fails if an action's commit doesn't
+match. Regenerate it with `gh actions-lock` (the `github/gh-actions-lock`
+extension) after adding or changing a `uses:`, and check it with
+`gh actions-lock --verify`. Never edit it by hand. Dependabot
+(`.github/dependabot.yml`) proposes updates weekly and updates the lockfile
+in the same PR.
 
 When publishing, whether anything changed is decided before building. The
 Nix output paths of both images are evaluated (no build needed) and

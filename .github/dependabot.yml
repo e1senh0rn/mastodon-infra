@@ -1,5 +1,6 @@
-# Actions in .github/workflows are pinned to commit SHAs (the workflow holds
-# packages: write and contents: write tokens); this keeps those pins current.
+# Actions are locked in .github/workflows/actions.lock (the workflow holds
+# packages: write and contents: write tokens). Dependabot updates the
+# lockfile together with the workflow.
 version: 2
 updates:
   - package-ecosystem: github-actions
