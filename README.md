@@ -141,7 +141,7 @@ active `docker context`, e.g. OrbStack):
 ```
 nix run .#load-arm64                     # -> mastodon:<version>-arm64
 nix run .#load-amd64 -- mastodon:test    # custom tag; run with --platform linux/amd64
-scripts/smoke-test.sh mastodon:4.7.2-arm64
+scripts/smoke-test.sh mastodon:<version>-arm64
 ```
 
 The smoke test boots the image against throwaway Postgres and Redis and
