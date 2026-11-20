@@ -1,0 +1,10 @@
+apiVersion: v2
+name: mastodon
+description: Mastodon (web, streaming, sidekiq) using the image built by this repository. PostgreSQL and Redis are not included.
+type: application
+version: "0.1.0"
+appVersion: "4.7.6"
+home: https://github.com/e1senh0rn/mastodon-infra
+sources:
+  - https://github.com/e1senh0rn/mastodon-infra
+  - https://github.com/mastodon/mastodon

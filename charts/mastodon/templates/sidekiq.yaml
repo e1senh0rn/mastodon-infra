@@ -1,0 +1,55 @@
+{{- $uploads := include "mastodon.uploads" . }}
+{{- $ready := "/tmp/sidekiq_process_has_started_and_will_begin_processing_jobs" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mastodon.fullname" . }}-sidekiq
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
+spec:
+  replicas: {{ .Values.sidekiq.replicas }}
+  # Never two schedulers at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sidekiq
+  template:
+    metadata:
+      labels:
+        {{- include "mastodon.labels" . | nindent 8 }}
+        app.kubernetes.io/component: sidekiq
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "mastodon.pod" (dict "root" . "uploads" $uploads) | nindent 6 }}
+      # Lets running jobs finish (Sidekiq's default shutdown timeout is 25s).
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: sidekiq
+          {{- include "mastodon.container" (dict "root" . "env" (merge (dict "SIDEKIQ_CONCURRENCY" (toString .Values.sidekiq.concurrency)) (include "mastodon.metricsEnv" (dict "root" . "local" true) | fromYaml) .Values.sidekiq.env) "uploads" $uploads) | nindent 10 }}
+          args: [bundle, exec, sidekiq]
+          {{- if .Values.metrics.enabled }}
+          ports:
+            - name: metrics
+              containerPort: 9394
+          {{- end }}
+          # The image has no shell; the image sets MASTODON_SIDEKIQ_READY_FILENAME.
+          startupProbe:
+            exec:
+              command: [ruby, -e, 'exit File.exist?("{{ $ready }}")']
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: [ruby, -e, 'exit File.exist?("{{ $ready }}")']
+            periodSeconds: 30
+            timeoutSeconds: 10
+          {{- with .Values.sidekiq.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

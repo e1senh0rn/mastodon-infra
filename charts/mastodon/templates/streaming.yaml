@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mastodon.fullname" . }}-streaming
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: streaming
+spec:
+  replicas: {{ .Values.streaming.replicas }}
+  selector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: streaming
+  template:
+    metadata:
+      labels:
+        {{- include "mastodon.labels" . | nindent 8 }}
+        app.kubernetes.io/component: streaming
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- include "mastodon.pod" (dict "root" .) | nindent 6 }}
+      containers:
+        - name: streaming
+          {{- include "mastodon.container" (dict "root" . "env" .Values.streaming.env) | nindent 10 }}
+          args: [node, ./streaming]
+          ports:
+            - name: streaming
+              containerPort: 4000
+          startupProbe:
+            httpGet:
+              path: /api/v1/streaming/health
+              port: streaming
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/streaming/health
+              port: streaming
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/streaming/health
+              port: streaming
+            periodSeconds: 30
+            timeoutSeconds: 5
+          {{- with .Values.streaming.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mastodon.fullname" . }}-streaming
+  labels:
+    {{- include "mastodon.labels" . | nindent 4 }}
+    app.kubernetes.io/component: streaming
+spec:
+  selector:
+    {{- include "mastodon.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: streaming
+  ports:
+    - name: streaming
+      port: 4000
+      targetPort: streaming

@@ -123,6 +123,9 @@ Differences from upstream's image to account for:
   upstream.
 - `jemalloc` is preloaded (`LD_PRELOAD`) with upstream's `MALLOC_CONF`.
 
+For Kubernetes, [`charts/mastodon`](charts/mastodon/README.md) deploys the
+image with all of the above taken care of.
+
 ## Building locally
 
 Needs a Linux builder. On a Mac, Determinate Nix's built-in Linux builder
@@ -190,15 +193,21 @@ flake's pinned nixpkgs. It doesn't check that the patch still applies;
 ## CI
 
 `.github/workflows/build.yml` runs the whole cycle: update pins, build
-both architectures, smoke-test, publish, commit the updated pins. Which
-steps run depends on the trigger:
+both architectures, smoke-test, publish, commit the updated pins, and pin
+and release the Helm chart. Which steps run depends on the trigger:
 
-| Trigger | Update Mastodon | Update nixpkgs | Build + test | Publish | Commit |
-|---|---|---|---|---|---|
-| Manual (`gh workflow run build.yml`) | input | input | yes | input | input |
-| Daily 03:17 UTC (**disabled**, see below) | yes | yes | yes | yes | yes |
-| Push to `main` | – | – | yes | yes | – |
-| Pull request | – | – | yes | – | – |
+| Trigger | Update Mastodon | Update nixpkgs | Build + test | Publish | Commit pins | Chart |
+|---|---|---|---|---|---|---|
+| Manual (`gh workflow run build.yml`) | input | input | yes | input | input | with publish |
+| Daily 03:17 UTC (**disabled**, see below) | yes | yes | yes | yes | yes | yes |
+| Push to `main` | – | – | yes | yes | – | yes |
+| Pull request | – | – | yes | – | – | – |
+
+"Chart" pins `charts/mastodon` to the published `:latest`, bumps its
+version, commits, and releases it via `.github/workflows/chart.yml`; see
+the chart README's "Releases". `chart.yml` also lints the chart on pull
+requests (and requires a version bump when it changed) and releases chart
+changes pushed to `main`.
 
 Manual inputs all default to on, so a bare `gh workflow run build.yml` does
 the full cycle. Turn parts off as needed:
@@ -225,7 +234,8 @@ Each architecture builds natively (`ubuntu-26.04` and `ubuntu-26.04-arm`)
 and pushes an arch-suffixed tag. A final job combines them into the
 multi-arch tags, annotated with the git commit and nixpkgs revision. Those
 are deliberately kept out of the per-arch images, so an image only differs
-when its contents do. The arm64 runner is free for public repos; for a
+when its contents do. The index also records its immutable tag, which is
+how the chart finds the build behind `:latest`. The arm64 runner is free for public repos; for a
 private one, point the `ARM64_RUNNER` repo variable at a larger or
 self-hosted arm64 runner.
 
