@@ -3,3 +3,5 @@ result
 result-*
 *.tar
 *.tar.gz
+mastodon.update.*/
+mastodon.old/

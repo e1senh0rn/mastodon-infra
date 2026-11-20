@@ -1,0 +1,5 @@
+# actionlint (1.7.12) predates the ubuntu-26.04 runner images going GA.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

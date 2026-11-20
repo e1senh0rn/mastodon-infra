@@ -1,0 +1,11 @@
+# Actions in .github/workflows are pinned to commit SHAs (the workflow holds
+# packages: write and contents: write tokens); this keeps those pins current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
