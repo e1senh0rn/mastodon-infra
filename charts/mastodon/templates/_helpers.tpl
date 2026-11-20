@@ -23,11 +23,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end -}}
 
 {{- define "mastodon.image" -}}
-{{- if .Values.image.digest -}}
-{{ .Values.image.repository }}@{{ .Values.image.digest }}
-{{- else -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}
-{{- end -}}
+{{- with .Values.image.digest }}@{{ . }}{{ end }}
 {{- end -}}
 
 {{- define "mastodon.validate" -}}

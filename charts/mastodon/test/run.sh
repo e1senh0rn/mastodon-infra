@@ -7,7 +7,7 @@
 # Needs: kubectl (OrbStack context), helm, docker, openssl, curl, jq, python3,
 # and an ingress/Gateway controller (Traefik, see the chart README).
 #
-# usage: charts/mastodon/test/run.sh [image tag]
+# usage: charts/mastodon/test/run.sh [image tag, instead of the chart's pinned image]
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -15,7 +15,13 @@ ns=mastodon-test
 release=mastodon
 host=mastodon.k8s.orb.local
 image=ghcr.io/e1senh0rn/mastodon
-tag="${1:-v$(sed -n 's/^appVersion: "\(.*\)"$/\1/p' ../Chart.yaml)}"
+if [[ $# -gt 0 ]]; then
+  ref="$image:$1"
+  image_args=(--set image.tag="$1" --set image.digest=)
+else
+  ref="$image:$(sed -n 's/^  tag: "\(.*\)"$/\1/p' ../values.yaml)@$(sed -n 's/^  digest: "\(.*\)"$/\1/p' ../values.yaml)"
+  image_args=()
+fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -32,7 +38,7 @@ step "every pod template meets the restricted Pod Security Standard"
 kubectl delete namespace "$ns-pss" --ignore-not-found --wait
 kubectl create namespace "$ns-pss" >/dev/null
 kubectl label namespace "$ns-pss" pod-security.kubernetes.io/enforce=restricted >/dev/null
-pss=$(helm template "$release" .. -f values.yaml --set image.tag="$tag" |
+pss=$(helm template "$release" .. -f values.yaml "${image_args[@]}" |
   kubectl -n "$ns-pss" apply --dry-run=server -f - 2>&1)
 kubectl delete namespace "$ns-pss" --wait=false >/dev/null
 grep -i 'violate' <<<"$pss" && fail "pod templates violate the restricted Pod Security Standard"
@@ -68,8 +74,8 @@ garage bucket allow --read --write --owner media --key mastodon >/dev/null
 garage bucket website --allow media >/dev/null
 
 step "Mastodon secret (generated with the image, as in the chart README)"
-docker pull -q "$image:$tag" >/dev/null
-run() { docker run --rm -e SECRET_KEY_BASE=unused "$image:$tag" bundle exec rails "$@"; }
+docker pull -q "$ref" >/dev/null
+run() { docker run --rm -e SECRET_KEY_BASE=unused "$ref" bundle exec rails "$@"; }
 {
   echo "SECRET_KEY_BASE=$(run secret | tail -n 1)"
   run mastodon:webpush:generate_vapid_key | grep '^VAPID_'
@@ -83,7 +89,7 @@ k create secret generic mastodon --from-env-file="$work/mastodon.env"
 
 step "helm install (Ingress)"
 helm upgrade --install "$release" .. -n "$ns" -f values.yaml \
-  --set image.tag="$tag" --wait --timeout 10m
+  "${image_args[@]}" --wait --timeout 10m
 
 # Not tootctl accounts create: it requires the email domain to have MX records.
 step "owner account and API token"
@@ -166,7 +172,7 @@ for attempt in $(seq 6); do
 done
 
 step "helm upgrade: Ingress off, HTTPRoute on"
-helm upgrade "$release" .. -n "$ns" -f values.yaml --set image.tag="$tag" \
+helm upgrade "$release" .. -n "$ns" -f values.yaml "${image_args[@]}" \
   --set ingress.enabled=false --set httpRoute.enabled=true --wait --timeout 10m
 k get ingress "$release" >/dev/null 2>&1 && fail "Ingress still exists"
 for _ in $(seq 15); do

@@ -1,9 +1,10 @@
 image:
   repository: ghcr.io/e1senh0rn/mastodon
-  # Defaults to v<appVersion>.
-  tag: ""
-  # sha256:...; when set, the image is pulled by digest and tag is ignored.
-  digest: ""
+  # Each chart release pins the latest image build (set by CI with
+  # scripts/update-chart.sh). The image is pulled by digest when one is set;
+  # the tag is then only for reading. Overriding the tag? Clear the digest.
+  tag: "v4.7.6-20261120.1"
+  digest: "sha256:b98dba051908ac6334fc074ee9db400f5addc9a63357c2fe7b4086ec408618a0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

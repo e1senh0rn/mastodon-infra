@@ -18,7 +18,7 @@ it has fewer settings: anything that isn't listed in `values.yaml` goes in
    every Mastodon container. Generate Mastodon's own keys with the image:
 
    ```sh
-   image=ghcr.io/e1senh0rn/mastodon:v4.7.6
+   image=ghcr.io/e1senh0rn/mastodon:latest
    run() { docker run --rm -e SECRET_KEY_BASE=unused "$image" bundle exec rails "$@"; }
    {
      echo "SECRET_KEY_BASE=$(run secret | tail -n 1)"
@@ -67,7 +67,8 @@ it has fewer settings: anything that isn't listed in `values.yaml` goes in
    ```
 
    ```sh
-   helm install mastodon charts/mastodon -n mastodon -f values.yaml
+   helm install mastodon oci://ghcr.io/e1senh0rn/charts/mastodon \
+     --version <version> -n mastodon -f values.yaml
    ```
 
 4. Create an owner account (the install notes print this command):
@@ -158,16 +159,51 @@ minor or major upgrade: some need manual steps.
   gateway controller to restrict them further. Outbound traffic isn't
   restricted, because federation talks to arbitrary servers. Policies only
   take effect if the network plugin enforces them.
-- Set `image.digest` to pin the exact image.
+- Each chart version pins one image by digest (see Releases).
 - sidekiq has to run as a single replica (it runs the scheduler) and uses
   the `Recreate` strategy, so two schedulers never overlap.
 
+## Releases
+
+The chart is published to `oci://ghcr.io/e1senh0rn/charts/mastodon` under
+its version (e.g. `0.1.0`), and the commit it was released from is tagged
+`chart-v<version>` in git. List them with `git tag -l 'chart-v*'`.
+`scripts/release-chart.sh` does both. If a release was published but its tag
+wasn't pushed, the next release run adds the tag; it never moves an
+existing one.
+
+Each chart version pins one image build, `image.tag` (the immutable
+`v<mastodon>-<date>.<run>` tag) plus `image.digest`, so it always deploys
+exactly the same image. Whenever `build.yml` publishes an image, it pins
+the chart to it with `scripts/update-chart.sh`, bumps the version, commits,
+and releases:
+
+| Image change | Chart version |
+|---|---|
+| Rebuild (e.g. nixpkgs fixes), same Mastodon | patch |
+| Mastodon patch release | patch |
+| Mastodon minor or major release | minor |
+
+That's up to one patch release a day with the daily schedule on.
+`helm upgrade` (or Flux, Argo CD, Renovate) to the latest version to pick up
+fixes.
+
+Changes to the chart itself need a version bump in `Chart.yaml`: pull
+requests fail without one, and `chart.yml` releases the new version once it
+reaches `main`. `test/` isn't part of the package, so changes there don't
+count.
+
+To run a different image than the pinned one, set `image.tag` and clear
+`image.digest`.
+
 ## Testing
 
-`test/run.sh` deploys the chart on a local OrbStack cluster with throwaway
-PostgreSQL, Redis and [Garage](https://garagehq.deuxfleurs.fr/) (for S3).
-It then checks web, streaming, media upload to S3, the character limit,
-sidekiq and the metrics endpoints through an Ingress, and upgrades the release to an HTTPRoute and
+`test/lint.sh` lints the chart and validates the rendered manifests (CI runs
+it on every chart change). `test/run.sh` deploys the chart on a local
+OrbStack cluster with throwaway PostgreSQL, Redis and
+[Garage](https://garagehq.deuxfleurs.fr/) (for S3). It then checks web,
+streaming, media upload to S3, the character limit, sidekiq and the metrics
+endpoints through an Ingress, and upgrades the release to an HTTPRoute and
 checks routing again. It needs a controller for both, e.g. Traefik:
 
 ```sh

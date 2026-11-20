@@ -1,0 +1,105 @@
+# Lints the Helm chart and publishes new versions to ghcr.io as an OCI
+# chart. See charts/mastodon/README.md ("Releases").
+name: chart
+
+on:
+  push:
+    branches: [main]
+    paths: &chart-paths
+      - charts/mastodon/**
+      - "!charts/mastodon/test/**"
+      - .github/workflows/chart.yml
+  pull_request:
+    paths: *chart-paths
+  workflow_dispatch:
+  # From build.yml, after it commits a chart pinned to a new image (its
+  # pushes don't trigger workflows).
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to release
+        type: string
+        required: true
+
+concurrency:
+  group: chart-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REF: ${{ inputs.ref || github.sha }}
+  # In a called workflow, github.event_name is the caller's event.
+  CALLED: ${{ inputs.ref != '' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: Install helm and kubeconform (flake's nixpkgs)
+        run: |
+          nix build --no-link --print-out-paths --inputs-from . nixpkgs#kubernetes-helm nixpkgs#kubeconform |
+            sed 's|$|/bin|' >>"$GITHUB_PATH"
+
+      - name: Lint and validate
+        run: charts/mastodon/test/lint.sh
+
+      - name: Version bumped
+        if: github.event_name == 'pull_request' && env.CALLED != 'true'
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          git rev-parse --verify --quiet "$BASE" >/dev/null || { echo "::error::$BASE not fetched"; exit 1; }
+          # The packaged chart, i.e. without test/.
+          if git diff --quiet "$BASE"...HEAD -- charts/mastodon ':!charts/mastodon/test'; then
+            echo "Chart unchanged."
+            exit 0
+          fi
+          version() { sed -n 's/^version: "\(.*\)"$/\1/p'; }
+          old=$(git show "$BASE:charts/mastodon/Chart.yaml" 2>/dev/null | version || true)
+          new=$(version <charts/mastodon/Chart.yaml)
+          if [[ -n "$old" ]] && { [[ "$new" == "$old" ]] ||
+            [[ "$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -n 1)" != "$new" ]]; }; then
+            echo "::error file=charts/mastodon/Chart.yaml::The chart changed, so bump its version (now $new, $old on ${BASE#origin/})."
+            exit 1
+          fi
+          echo "Chart version ${old:-none} -> $new"
+
+  release:
+    needs: lint
+    # Pull requests only lint; releases come from the default branch.
+    if: >-
+      inputs.ref != ''
+      || (github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ env.REF }}
+          # release-chart.sh finds the commit the chart was last changed in.
+          fetch-depth: 0
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: Install helm (flake's nixpkgs)
+        run: |
+          nix build --no-link --print-out-paths --inputs-from . nixpkgs#kubernetes-helm |
+            sed 's|$|/bin|' >>"$GITHUB_PATH"
+
+      - name: Publish and tag
+        env:
+          EVENT: ${{ github.event_name }}
+          TOKEN: ${{ github.token }}
+        run: |
+          helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+          # A push that changed the chart must bring a new version.
+          flag=()
+          if [[ "$CALLED" != true && "$EVENT" == push ]]; then flag=(--fail-if-published); fi
+          scripts/release-chart.sh "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" "$REF" "${flag[@]}"
