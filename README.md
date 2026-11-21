@@ -3,9 +3,9 @@
 Nix flake that builds a Mastodon container image **from source**, with the
 post character limit raised from 500 to 5000. The image has no distro base,
 package manager or shell: it contains Mastodon's runtime closure and a few
-small files, and nothing else. CI rebuilds it daily against a fresh nixpkgs,
-so fixes to base components (openssl, glibc, libvips, ffmpeg, ...) ship
-without waiting for a Mastodon release. It's published as a single multi-arch
+small files, and nothing else. CI rebuilds it weekly against a fresh
+nixpkgs, and on demand, so fixes to base components (openssl, glibc,
+libvips, ffmpeg, ...) ship without waiting for a Mastodon release. It's published as a single multi-arch
 (`linux/amd64` + `linux/arm64`) image on ghcr.io.
 
 ## How it works
@@ -83,8 +83,8 @@ Two caveats this can't do anything about:
 ## Using the image
 
 ```
-ghcr.io/e1senh0rn/mastodon:v4.6.6-20260925.17   # immutable: version-date.run
-ghcr.io/e1senh0rn/mastodon:v4.6.6               # moves with daily rebuilds
+ghcr.io/e1senh0rn/mastodon:v4.7.6-20261120.1    # immutable: version-date.run
+ghcr.io/e1senh0rn/mastodon:v4.7.6               # moves with rebuilds
 ghcr.io/e1senh0rn/mastodon:latest
 ```
 
@@ -175,7 +175,7 @@ nix run .#update-base -- --commit-lock-file   # extra args go to `nix flake upda
 ```
 
 This bumps only the `nixpkgs` input and prints the old and new revision.
-CI does this daily. Gems and npm packages aren't base components: they're
+CI does this weekly. Gems and npm packages aren't base components: they're
 pinned by Mastodon's lockfiles and move with `update-mastodon`.
 
 **Mastodon**:
@@ -199,7 +199,7 @@ and release the Helm chart. Which steps run depends on the trigger:
 | Trigger | Update Mastodon | Update nixpkgs | Build + test | Publish | Commit pins | Chart |
 |---|---|---|---|---|---|---|
 | Manual (`gh workflow run build.yml`) | input | input | yes | input | input | with publish |
-| Daily 03:17 UTC (**disabled**, see below) | yes | yes | yes | yes | yes | yes |
+| Weekly, Wednesday 03:17 UTC | yes | yes | yes | yes | yes | yes |
 | Push to `main` | – | – | yes | yes | – | yes |
 | Pull request | – | – | yes | – | – | – |
 
@@ -262,9 +262,27 @@ Mastodon version no longer takes the char-limit patch, nothing is
 committed. Re-run with `-f update_mastodon=false` to still get the
 base-component updates.
 
-The schedule is **disabled for now**: the `schedule:` trigger is commented
-out. Uncomment it to turn the daily runs on. Manual, push and pull-request
-runs aren't affected.
+### Urgent updates (CVEs)
+
+Don't wait for Wednesday: run the full cycle by hand, with `gh workflow run
+build.yml` or "Run workflow" on the workflow's Actions page. It publishes a
+new image and chart patch release if anything changed.
+
+- A CVE in a base component (openssl, glibc, libvips, ffmpeg, ...) is only
+  fixed once the fix reaches `nixos-unstable`; until then the run finds
+  nothing new and skips the build. [status.nixos.org](https://status.nixos.org)
+  shows how far the channel is, and the
+  [Nixpkgs PR tracker](https://nixpk.gs/pr-tracker.html) shows whether a
+  given fix has landed in it.
+- A Mastodon security release is picked up by the same run if it's a patch
+  release of the pinned minor. A new minor needs `-f mastodon_version=...`.
+
+Deploy the new chart version (or image) once the run finishes; its summary
+lists both.
+
+GitHub turns off scheduled workflows in public repositories after 60 days
+without activity in the repository, and emails a warning first. Re-enable
+the schedule from the workflow's Actions page.
 
 Optional: set a `CACHIX_NAME` repo variable and `CACHIX_AUTH_TOKEN` secret
 to cache the Mastodon-specific builds between runs.

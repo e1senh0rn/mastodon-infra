@@ -184,7 +184,8 @@ and releases:
 | Mastodon patch release | patch |
 | Mastodon minor or major release | minor |
 
-That's up to one patch release a day with the daily schedule on.
+That's up to one patch release a week from the weekly schedule, plus any
+from manual runs.
 `helm upgrade` (or Flux, Argo CD, Renovate) to the latest version to pick up
 fixes.
 
