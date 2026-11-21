@@ -10,4 +10,69 @@
 #     package:
 #       name: some-package
 #     reason: why it doesn't apply (link to the advisory or nixpkgs patch)
-ignore: []
+ignore:
+  # Issue #5. A stack guard bypass in glibc that upstream treats as a
+  # non-security bug (it needs an existing memory-corruption bug to matter),
+  # so it is never fixed and NVD keeps matching every glibc version.
+  # https://sourceware.org/bugzilla/show_bug.cgi?id=22850
+  - vulnerability: CVE-2019-1010022
+    package:
+      name: glibc
+    reason: disputed; upstream treats it as a non-security bug (sourceware bug 22850)
+
+  # Issue #4, and every other ImageMagick CVE. ImageMagick is only in the
+  # image as libvips' optional vips-magick plugin (vips -> imagemagick), and
+  # Mastodon blocks every libvips loader and saver except GIF, JPEG, PNG and
+  # WebP (config/initializers/vips.rb), so none of its code is reachable.
+  # Revisit if Mastodon's allowlist ever includes an ImageMagick operation
+  # (VipsForeignLoadMagick*, VipsForeignSaveMagick*).
+  - package:
+      name: imagemagick
+    reason: unreachable; Mastodon blocks all libvips ImageMagick operations (config/initializers/vips.rb)
+
+  # Issues #6 and #7, and the rest of grype's gnutls matches. gnutls 3.8.13
+  # (what nixpkgs ships) already fixes all of them, per the NEWS file of its
+  # release tarball; grype matches them through a catch-all
+  # cpe:2.3:a:gnu:gnutls:* entry in its NVD data. Pinned to 3.8.13, so they
+  # stop applying (and get checked again) once gnutls changes version.
+  # https://gitlab.com/gnutls/gnutls/-/blob/3.8.13/NEWS
+  - vulnerability: CVE-2026-33845
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.13 (NEWS); issue #6
+  - vulnerability: CVE-2026-42010
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.13 (NEWS); issue #7
+  - vulnerability: CVE-2026-42009
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.13 (NEWS)
+  - vulnerability: CVE-2026-3833
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.13 (NEWS)
+  - vulnerability: CVE-2026-3832
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.13 (NEWS)
+  - vulnerability: CVE-2026-1584
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.12 (NEWS)
+  - vulnerability: CVE-2025-32990
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.10 (NEWS)
+  - vulnerability: CVE-2025-32989
+    package:
+      name: gnutls
+      version: 3.8.13
+    reason: fixed in gnutls 3.8.10 (NEWS)
