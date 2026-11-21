@@ -177,6 +177,56 @@
             text = builtins.readFile ./scripts/update-base.sh;
           };
 
+          # Like update-base, uses the caller's Nix (sbomnix evaluates the flake).
+          sbom = pkgs.writeShellApplication {
+            name = "sbom";
+            runtimeInputs = [
+              (toolchain pkgs).ruby
+              pkgs.sbomnix
+            ];
+            # Like cve-report: no arguments means this machine's architecture.
+            text = ''
+              case "''${1:-}" in
+                *"#"*) exec ruby ${./scripts/sbom.rb} "$@" ;; # <flake ref> <out> [name] [version], as CI calls it
+              esac
+              case "''${1:-$(uname -m)}" in
+                x86_64 | amd64 | x86_64-linux) system=x86_64-linux arch=amd64 ;;
+                aarch64 | arm64 | aarch64-linux) system=aarch64-linux arch=arm64 ;;
+                *)
+                  echo "usage: nix run .#sbom -- [amd64|arm64] [out.cdx.json]" >&2
+                  echo "       nix run .#sbom -- <flake ref of the image> <out.cdx.json> [image name] [image version]" >&2
+                  exit 1
+                  ;;
+              esac
+              out="''${2:-sbom-$arch.cdx.json}"
+              ruby ${./scripts/sbom.rb} ".#packages.$system.image" "$out" mastodon local
+              echo "Wrote $out" >&2
+            '';
+          };
+
+          # CVE report for the current checkout: builds the image (on a Mac via
+          # the Linux builder), makes its SBOM and scans it like scan.yml does.
+          cveReport = pkgs.writeShellApplication {
+            name = "cve-report";
+            runtimeInputs = [
+              (toolchain pkgs).ruby
+              pkgs.sbomnix
+              pkgs.grype
+            ];
+            text = ''
+              case "''${1:-$(uname -m)}" in
+                x86_64 | amd64 | x86_64-linux) system=x86_64-linux arch=amd64 ;;
+                aarch64 | arm64 | aarch64-linux) system=aarch64-linux arch=arm64 ;;
+                *) echo "usage: nix run .#cve-report -- [amd64|arm64] [out dir]" >&2; exit 1 ;;
+              esac
+              out="''${2:-cve-report}"
+              mkdir -p "$out"
+              ruby ${./scripts/sbom.rb} ".#packages.$system.image" "$out/sbom-$arch.cdx.json" mastodon local
+              GRYPE_CONFIG=${./.grype.yaml} ruby ${./scripts/scan_image.rb} --print \
+                --sbom "$arch=$out/sbom-$arch.cdx.json" "$out"
+            '';
+          };
+
           updateMastodon = pkgs.writeShellApplication {
             name = "update-mastodon";
             runtimeInputs = with pkgs; [
@@ -202,13 +252,26 @@
               pkgs.gnupatch
               pkgs.layerx
               pkgs.dive
+              # Chart: lint, validate, test/run.sh.
               pkgs.kubernetes-helm
               pkgs.kubeconform
+              pkgs.kubectl
+              # SBOM and vulnerability scans (scripts/*.rb, .#sbom, .#cve-report).
+              (toolchain pkgs).ruby
+              pkgs.sbomnix
+              pkgs.grype
+              pkgs.oras
+              # Workflows: actionlint, shellcheck, gh (gh actions-lock is a gh extension).
+              pkgs.actionlint
+              pkgs.shellcheck
+              pkgs.gh
             ];
           };
 
           apps = copyApps // {
             update-base = flake-utils.lib.mkApp { drv = updateBase; };
+            sbom = flake-utils.lib.mkApp { drv = sbom; };
+            cve-report = flake-utils.lib.mkApp { drv = cveReport; };
             update-mastodon = flake-utils.lib.mkApp { drv = updateMastodon; };
           };
         }
