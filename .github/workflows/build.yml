@@ -3,9 +3,10 @@
 name: build
 
 on:
-  # Disabled for now.
-  # schedule:
-  #   - cron: "17 3 * * *"
+  # Weekly, Wednesdays 03:17 UTC (GitHub may start it some minutes late).
+  # Run it by hand for urgent fixes: gh workflow run build.yml
+  schedule:
+    - cron: "17 3 * * 3"
   workflow_dispatch:
     inputs:
       update_mastodon:
