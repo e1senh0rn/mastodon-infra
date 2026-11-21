@@ -243,12 +243,36 @@ jobs:
           nix run .#load-${{ matrix.arch }} -- mastodon:ci
           scripts/smoke-test.sh mastodon:ci
 
+      # From Nix, not by inspecting the image: every store path in the runtime
+      # closure with its name, version, CPE and the CVEs nixpkgs patches, plus
+      # the gems and npm packages (scripts/sbom.rb).
+      - name: SBOM
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          nix run .#sbom -- .#packages.${{ matrix.system }}.image \
+            "$RUNNER_TEMP/sbom-${{ matrix.arch }}.cdx.json" "$IMAGE" "$TAG-${{ matrix.arch }}"
+
       - name: Push ${{ matrix.arch }}
         if: needs.prepare.outputs.publish == 'true'
         env:
           REF: ${{ env.IMAGE }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
           CREDS: ${{ github.actor }}:${{ github.token }}
         run: nix run .#push-${{ matrix.arch }} -- "$REF" --dest-creds "$CREDS"
+
+      # As an OCI referrer of the image, where scripts/scan_image.rb (and
+      # `oras discover`) find it.
+      - name: Attach SBOM to ${{ matrix.arch }}
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          REF: ${{ env.IMAGE }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
+          TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          PATH="$(nix build --no-link --print-out-paths --inputs-from "$GITHUB_WORKSPACE" nixpkgs#oras)/bin:$PATH"
+          oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+          oras attach --artifact-type application/vnd.cyclonedx+json "$REF" \
+            "sbom-${{ matrix.arch }}.cdx.json:application/vnd.cyclonedx+json"
 
   publish:
     needs: [prepare, build]

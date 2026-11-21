@@ -5,3 +5,9 @@ result-*
 *.tar.gz
 mastodon.update.*/
 mastodon.old/
+cve-report/
+sbom-*.cdx.json
+# sbomnix run directly writes these to the current directory.
+sbom.cdx.json
+sbom.spdx.json
+sbom.csv

@@ -262,6 +262,87 @@ Mastodon version no longer takes the char-limit patch, nothing is
 committed. Re-run with `-f update_mastodon=false` to still get the
 base-component updates.
 
+### SBOM and vulnerability scanning
+
+Each published architecture image has a CycloneDX SBOM attached as an OCI
+referrer. `nix run .#sbom` (`scripts/sbom.rb`) generates it right after the
+smoke test, from what Nix knows about the build rather than by inspecting
+files:
+
+- **Nix packages:** every store path in the image's runtime closure, via
+  [sbomnix](https://github.com/tiiuae/sbomnix): glibc, openssl, libvips,
+  ffmpeg, Ruby, Node and the rest, with name, version, licence and the CPE
+  nixpkgs records (e.g. `gnu:gnutls`, or `ffmpeg:ffmpeg` for
+  `ffmpeg-headless`).
+- **CVE patches:** for each package, the CVEs nixpkgs fixes with a patch,
+  without a version change (`pedigree.patches`).
+- **Gems:** as `pkg:gem` components, from the gem derivations in the
+  closure.
+- **npm packages, server:** as `pkg:npm` components: streaming's
+  production dependency tree in `yarn.lock`, which is exactly what the image
+  installs.
+- **npm packages, web UI bundle:** the packages Vite compiled into
+  `public/packs`, whose JavaScript runs in visitors' browsers. Their names
+  come from the packs' source maps, so build tools such as vite and sass
+  aren't included. Their versions come from `yarn.lock`'s production
+  dependency tree; a name with several versions there is listed with all of
+  them.
+
+The two npm groups are told apart by the component property
+`mastodon:shipped` (`server` or `browser-bundle`). Rust crates compiled into
+binaries such as librsvg aren't listed. To fetch an SBOM:
+
+```
+oras discover --artifact-type application/vnd.cyclonedx+json ghcr.io/e1senh0rn/mastodon:<tag>-amd64
+oras pull ghcr.io/e1senh0rn/mastodon@<sbom digest>
+```
+
+`.github/workflows/scan.yml` runs daily at 05:41 UTC (or by hand). It scans
+the SBOMs of the published `:latest` with grype against that day's
+vulnerability data. Findings that a nixpkgs patch resolves are set aside and
+listed separately. `scripts/report_vulnerabilities.rb` then opens one issue,
+labelled `vulnerability`, per **critical** finding, so the repository's
+watchers get notified. It closes the issue (labelled `resolved`) once the
+published image no longer has the finding, and reopens it if the finding
+comes back. An issue closed by hand counts as dismissed and stays closed.
+The run summary lists the critical and high findings, server and web UI
+bundle separately, and the full results are an artifact of the run.
+
+`nix run .#sbom` on its own writes the SBOM of the current checkout's
+image for this machine's architecture to `sbom-<arch>.cdx.json`
+(`nix run .#sbom -- amd64 out.cdx.json` for another).
+
+To get the same report for the current checkout (uncommitted changes to
+tracked files included):
+
+```
+nix run .#cve-report                 # this machine's architecture, into cve-report/
+nix run .#cve-report -- amd64 out/   # or amd64/arm64, and an output directory
+```
+
+It builds the image if needed (on a Mac via the Linux builder), generates
+its SBOM with `nix run .#sbom`, and scans it with the same `.grype.yaml`.
+It prints the critical and high findings as aligned columns (server and web
+UI bundle separately, coloured unless `NO_COLOR` is set), with counts for
+the rest. `findings.json` in the output directory has every finding with its
+description. Nothing is reported as an issue. To scan what's published instead:
+`nix shell --inputs-from . nixpkgs#ruby_4_0 nixpkgs#grype nixpkgs#oras -c scripts/scan_image.rb ghcr.io/e1senh0rn/mastodon:latest scan/`.
+
+An image without an SBOM can't be scanned: the SBOM comes from the exact
+build. Images published before SBOMs existed need a rebuild
+(`gh workflow run build.yml -f force=true`).
+
+Scanner results still need judgment, depending on the kind of package:
+
+- **Gems and npm packages** are matched exactly against GitHub's advisory
+  database, including the version that fixes them. The fix comes with a
+  Mastodon release that updates its lockfiles.
+- **Nix packages** are matched by CPE against NVD, with no "fixed in"
+  information. That can still bring false positives: disputed CVEs, or
+  version ranges NVD records wrongly.
+- **False positives:** add them with a reason to `.grype.yaml` and close
+  the issue. That file is the reviewed list of exceptions.
+
 ### Urgent updates (CVEs)
 
 Don't wait for Wednesday: run the full cycle by hand, with `gh workflow run

@@ -1,0 +1,72 @@
+# Daily vulnerability scan of the published image (its attached SBOM, against
+# that day's vulnerability data). Opens an issue per critical finding and
+# closes it once a release no longer has it. See README.md ("Vulnerability
+# scanning").
+name: scan
+
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: Open issues for findings at or above
+        type: choice
+        options: [Critical, High]
+        default: Critical
+  pull_request:
+    paths:
+      - .grype.yaml
+      - scripts/scan_image.rb
+      - scripts/report_vulnerabilities.rb
+      - .github/workflows/scan.yml
+
+concurrency:
+  group: scan
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/mastodon:latest
+
+jobs:
+  scan:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: Install Ruby, grype and oras (flake's nixpkgs)
+        run: |
+          nix build --no-link --print-out-paths --inputs-from . nixpkgs#ruby_4_0 nixpkgs#grype nixpkgs#oras |
+            sed 's|$|/bin|' >>"$GITHUB_PATH"
+
+      - name: Scan
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+          scripts/scan_image.rb "${IMAGE,,}" "$RUNNER_TEMP/scan"
+          cat "$RUNNER_TEMP/scan/summary.md" >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: scan
+          path: ${{ runner.temp }}/scan/
+          if-no-files-found: error
+
+      # Pull requests only show what would be reported.
+      - name: Report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SEVERITY: ${{ inputs.severity || 'Critical' }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' && '1' || '' }}
+        run: |
+          scripts/report_vulnerabilities.rb "$RUNNER_TEMP/scan/findings.json" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

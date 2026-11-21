@@ -1,0 +1,13 @@
+# grype settings for scripts/scan_image.rb (the daily scan and local runs).
+#
+# Reviewed exceptions: findings that don't apply to this image, e.g. a CVE
+# matched by product name against a version it doesn't affect, or one nixpkgs
+# fixed with a patch without changing the version. Each needs a reason and,
+# where it applies, a link. Remove an entry once it no longer matches.
+#
+# ignore:
+#   - vulnerability: CVE-YYYY-NNNNN
+#     package:
+#       name: some-package
+#     reason: why it doesn't apply (link to the advisory or nixpkgs patch)
+ignore: []
