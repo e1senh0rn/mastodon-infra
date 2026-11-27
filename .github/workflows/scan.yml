@@ -40,7 +40,7 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.1.0
       - name: Install Ruby, grype and oras (flake's nixpkgs)
         run: |
           nix build --no-link --print-out-paths --inputs-from . nixpkgs#ruby_4_0 nixpkgs#grype nixpkgs#oras |

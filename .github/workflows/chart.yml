@@ -41,7 +41,7 @@ jobs:
         with:
           ref: ${{ env.REF }}
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.1.0
       - name: Install helm and kubeconform (flake's nixpkgs)
         run: |
           nix build --no-link --print-out-paths --inputs-from . nixpkgs#kubernetes-helm nixpkgs#kubeconform |
@@ -87,7 +87,7 @@ jobs:
           ref: ${{ env.REF }}
           # release-chart.sh finds the commit the chart was last changed in.
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.1.0
       - name: Install helm (flake's nixpkgs)
         run: |
           nix build --no-link --print-out-paths --inputs-from . nixpkgs#kubernetes-helm |
