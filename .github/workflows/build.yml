@@ -79,7 +79,7 @@ jobs:
       commit_message: ${{ steps.pins.outputs.message }}
     steps:
       - uses: actions/checkout@v7.0.1
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.1.0
 
       - name: Resolve options
         id: opts
@@ -224,7 +224,7 @@ jobs:
       - uses: actions/download-artifact@v8.0.2
         with:
           name: pins
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32.1.0
       # Optional cache for the Mastodon-specific builds.
       - uses: cachix/cachix-action@v17
         if: vars.CACHIX_NAME != ''
